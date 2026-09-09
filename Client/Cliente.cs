@@ -7,6 +7,8 @@ namespace Cliente
 {
     internal class Cliente
     {
+        private static readonly SettingsManager settingsManager = new SettingsManager();
+        
         static void Main(string[] args)
         {
             Console.WriteLine("Empezando cliente!");
@@ -17,10 +19,16 @@ namespace Cliente
                 ProtocolType.Tcp
             );
             
-            IPEndPoint endpointLocal = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 0);
+            IPAddress ipCliente = IPAddress.Parse(settingsManager.LeerConfig(ClienteConfig.ClaveIpCliente));
+            int puertoCliente = int.Parse(settingsManager.LeerConfig(ClienteConfig.ClavePuertoCliente));
+            
+            IPEndPoint endpointLocal = new IPEndPoint(ipCliente, puertoCliente);
             socketCliente.Bind(endpointLocal);
             
-            IPEndPoint endpointServidor = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 5000);
+            IPAddress ipServidor = IPAddress.Parse(settingsManager.LeerConfig(ServidorConfig.ClaveIpServidor));
+            int puertoServidor = int.Parse(settingsManager.LeerConfig(ServidorConfig.ClavePuertoServidor));
+            
+            IPEndPoint endpointServidor = new IPEndPoint(ipServidor, puertoServidor);
             socketCliente.Connect(endpointServidor);
             Console.WriteLine("Conectado al servidor!");
             
@@ -29,19 +37,40 @@ namespace Cliente
             bool salir = false;
             while (!salir)
             {
-                Console.Write("Ingresar un mensaje para el servidor: ");
-                string mensaje = Console.ReadLine();
-                if (mensaje == "salir")
+                Console.Write("Ingresar ruta del archivo: ");
+                string ruta = Console.ReadLine();
+                
+                FileInfo info = new FileInfo(ruta);
+                string nombreArchivo = info.Name;
+                byte[] bufferNombreArchivo = Encoding.UTF8.GetBytes(nombreArchivo);
+                int largoNombreArchivo = bufferNombreArchivo.Length;
+                byte[] bufferLargoNombreArchivo = BitConverter.GetBytes(largoNombreArchivo);
+                ndh.Send(bufferLargoNombreArchivo);
+                ndh.Send(bufferNombreArchivo);
+
+                long largoArchivo = info.Length;
+                byte[] bufferLargoArchivo = BitConverter.GetBytes(largoArchivo);
+                long numPartes = Protocolo.CalcularCantidadDePartes(largoArchivo);
+                long desplazamiento = 0;
+                long parteActual = 1;
+                
+                ndh.Send(bufferLargoArchivo);
+
+                using (FileStreamHelper fsh = new FileStreamHelper(ruta, FileMode.Open, FileAccess.Read))
                 {
-                    salir = true;
-                    continue;
+                    while (desplazamiento < largoArchivo)
+                    {
+                        int largoParte = parteActual == numPartes
+                            ? (int)(largoArchivo - desplazamiento)
+                            : Protocolo.MaxLargoParteArchivo;
+                        Console.WriteLine($"Enviando segmento #{parteActual}/{numPartes} de largo {largoParte}");
+                        byte[] buffer = fsh.Leer(largoParte);
+                        ndh.Send(buffer);
+                        
+                        desplazamiento += largoParte;
+                        parteActual++;
+                    }
                 }
-                byte[] bufferMensaje = Encoding.UTF8.GetBytes(mensaje);
-                int largoMensaje = bufferMensaje.Length;
-                byte[] bufferLargoMensaje = BitConverter.GetBytes(largoMensaje);
-                ndh.Send(bufferLargoMensaje);
-                ndh.Send(bufferMensaje);
-                Console.WriteLine($"Mensaje enviado: \"{mensaje}\"");
             }
             Console.WriteLine("Se cierra la conexion...");
             ndh.Disconnect();

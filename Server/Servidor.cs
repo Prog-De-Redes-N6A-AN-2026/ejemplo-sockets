@@ -7,6 +7,8 @@ namespace Server
 {
     internal class Servidor
     {
+        private static readonly SettingsManager settingsManager = new SettingsManager();
+        
         static void Main(string[] args)
         {
             Console.WriteLine("Empezando servidor!");
@@ -16,8 +18,11 @@ namespace Server
                 SocketType.Stream,
                 ProtocolType.Tcp
             );
+
+            IPAddress ipServidor = IPAddress.Parse(settingsManager.LeerConfig(ServidorConfig.ClaveIpServidor));
+            int puertoServidor = int.Parse(settingsManager.LeerConfig(ServidorConfig.ClavePuertoServidor));
             
-            IPEndPoint endpointLocal = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 5000); 
+            IPEndPoint endpointLocal = new IPEndPoint(ipServidor, puertoServidor); 
             
             socketServer.Bind(endpointLocal);
 
@@ -46,11 +51,49 @@ namespace Server
             {
                 try
                 {
-                    byte[] bufferLargoMensaje = ndh.Receive(sizeof(int));
-                    int largoMensaje = BitConverter.ToInt32(bufferLargoMensaje);
-                    byte[] buffer = ndh.Receive(largoMensaje);
-                    string mensaje = Encoding.UTF8.GetString(buffer);
-                    Console.WriteLine($"El cliente #{clienteId} envió: {mensaje}");
+                    byte[] bufferLargoNombreArchivo = ndh.Receive(Protocolo.LargoDeLargoNombreArchivo);
+                    int largoNombreArchivo = BitConverter.ToInt32(bufferLargoNombreArchivo);
+
+                    byte[] bufferNombreArchivo = ndh.Receive(largoNombreArchivo);
+                    string nombreArchivo = Encoding.UTF8.GetString(bufferNombreArchivo);
+
+                    byte[] bufferLargoArchivo = ndh.Receive(Protocolo.LargoDeLargoArchivo);
+                    long largoArchivo =  BitConverter.ToInt64(bufferLargoArchivo);
+                    
+                    long desplazamiento = 0;
+                    long numPartes = Protocolo.CalcularCantidadDePartes(largoArchivo);
+                    long parteActual = 1;
+
+                    try
+                    {
+                        using (FileStreamHelper fsh = new FileStreamHelper(
+                                   nombreArchivo,
+                                   FileMode.Create,
+                                   FileAccess.Write))
+                        {
+                            while (desplazamiento < largoArchivo)
+                            {
+                                int largoParte = parteActual == numPartes
+                                    ? (int)(largoArchivo - desplazamiento)
+                                    : Protocolo.MaxLargoParteArchivo;
+
+                                Console.WriteLine(
+                                    $"Recibiendo segmento #{parteActual}/{numPartes} de largo {largoParte}");
+
+                                byte[] buffer = ndh.Receive(largoParte);
+                                fsh.Escribir(buffer);
+
+                                desplazamiento += largoParte;
+                                parteActual++;
+                            }
+                        }
+                    } 
+                    catch (Exception)
+                    {
+                        File.Delete(nombreArchivo);
+                    }
+
+                    Console.WriteLine("Se recibió el archivo");
                 }
                 catch (SocketException)
                 {

@@ -8,6 +8,7 @@ namespace Cliente
     internal class Cliente
     {
         private static readonly SettingsManager settingsManager = new SettingsManager();
+        private static readonly CancellationTokenSource cts = new CancellationTokenSource();
 
         static void ImprimirMenu()
         {
@@ -18,31 +19,31 @@ namespace Cliente
             Console.WriteLine("4. Salir");
             Console.Write("Seleccione una opción: ");
         }
-        
-        static void Main(string[] args)
+
+        static async Task Main(string[] args)
         {
             Console.WriteLine("Empezando cliente!");
 
-            Socket socketCliente = new Socket(
-                AddressFamily.InterNetwork,
-                SocketType.Stream,
-                ProtocolType.Tcp
-            );
-            
             IPAddress ipCliente = IPAddress.Parse(settingsManager.LeerConfig(ClienteConfig.ClaveIpCliente));
             int puertoCliente = int.Parse(settingsManager.LeerConfig(ClienteConfig.ClavePuertoCliente));
-            
+
             IPEndPoint endpointLocal = new IPEndPoint(ipCliente, puertoCliente);
-            socketCliente.Bind(endpointLocal);
-            
+            TcpClient clienteTcp = new TcpClient(endpointLocal);
+
             IPAddress ipServidor = IPAddress.Parse(settingsManager.LeerConfig(ServidorConfig.ClaveIpServidor));
             int puertoServidor = int.Parse(settingsManager.LeerConfig(ServidorConfig.ClavePuertoServidor));
-            
-            IPEndPoint endpointServidor = new IPEndPoint(ipServidor, puertoServidor);
+
+            Console.CancelKeyPress += ManejarCancelacion;
 
             try
             {
-                socketCliente.Connect(endpointServidor);
+                Task tareaConexion = clienteTcp.ConnectAsync(ipServidor, puertoServidor);
+                await tareaConexion.WaitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("Se canceló la conexión");
+                return;
             }
             catch (Exception)
             {
@@ -50,9 +51,11 @@ namespace Cliente
                 return;
             }
 
+            Console.CancelKeyPress -= ManejarCancelacion;
+
             Console.WriteLine("Conectado al servidor!");
-            
-            NetworkDataHelper ndh = new NetworkDataHelper(socketCliente);
+
+            NetworkDataHelper ndh = new NetworkDataHelper(clienteTcp);
 
             bool salir = false;
             while (!salir)
@@ -84,8 +87,8 @@ namespace Cliente
 
                 try
                 {
-                    ndh.Send(tipoMensaje);
-                    ndh.Send(bufferComando);
+                    await ndh.SendAsync(tipoMensaje);
+                    await ndh.SendAsync(bufferComando);
                 }
                 catch (SocketException)
                 {
@@ -96,13 +99,13 @@ namespace Cliente
                 switch (comando)
                 {
                     case Comando.Registrar:
-                        salir = !Registrar(ndh);
+                        salir = !await RegistrarAsync(ndh);
                         break;
                     case Comando.IniciarSesion:
-                        salir = !IniciarSesion(ndh);
+                        salir = !await IniciarSesionAsync(ndh);
                         break;
                     case Comando.EnviarArchivo:
-                        salir = !EnviarArchivo(ndh);
+                        salir = !await EnviarArchivoAsync(ndh);
                         break;
                     default:
                         Console.WriteLine("Opción inválida");
@@ -114,7 +117,7 @@ namespace Cliente
             ndh.Disconnect();
         }
 
-        internal static bool Registrar(NetworkDataHelper ndh)
+        internal static async Task<bool> RegistrarAsync(NetworkDataHelper ndh)
         {
             Console.Write("Nombre de usuario: ");
             string? nombreUsuario = Console.ReadLine();
@@ -139,10 +142,10 @@ namespace Cliente
 
             try
             {
-                ndh.Send(bufferLargoDatosComando);
-                ndh.Send(datosComando);
+                await ndh.SendAsync(bufferLargoDatosComando);
+                await ndh.SendAsync(datosComando);
 
-                byte[] resultado = ndh.Receive(1);
+                byte[] resultado = await ndh.ReceiveAsync(1);
                 bool registrado = BitConverter.ToBoolean(resultado);
 
                 if (registrado)
@@ -163,7 +166,7 @@ namespace Cliente
             }
         }
 
-        internal static bool IniciarSesion(NetworkDataHelper ndh)
+        internal static async Task<bool> IniciarSesionAsync(NetworkDataHelper ndh)
         {
             Console.Write("Nombre de usuario: ");
             string? nombreUsuario = Console.ReadLine();
@@ -188,10 +191,10 @@ namespace Cliente
 
             try
             {
-                ndh.Send(bufferLargoDatosComando);
-                ndh.Send(datosComando);
+                await ndh.SendAsync(bufferLargoDatosComando);
+                await ndh.SendAsync(datosComando);
 
-                byte[] resultado = ndh.Receive(1);
+                byte[] resultado = await ndh.ReceiveAsync(1);
                 bool sesionIniciada = BitConverter.ToBoolean(resultado);
 
                 if (sesionIniciada)
@@ -212,7 +215,7 @@ namespace Cliente
             }
         }
 
-        internal static bool EnviarArchivo(NetworkDataHelper ndh)
+        internal static async Task<bool> EnviarArchivoAsync(NetworkDataHelper ndh)
         {
             try
             {
@@ -237,16 +240,17 @@ namespace Cliente
                 byte[] bufferNombreArchivo = Encoding.UTF8.GetBytes(nombreArchivo);
                 int largoNombreArchivo = bufferNombreArchivo.Length;
                 byte[] bufferLargoNombreArchivo = BitConverter.GetBytes(largoNombreArchivo);
-                ndh.Send(bufferLargoNombreArchivo);
-                ndh.Send(bufferNombreArchivo);
+
+                await ndh.SendAsync(bufferLargoNombreArchivo);
+                await ndh.SendAsync(bufferNombreArchivo);
 
                 long largoArchivo = info.Length;
                 byte[] bufferLargoArchivo = BitConverter.GetBytes(largoArchivo);
                 long numPartes = Protocolo.CalcularCantidadDePartes(largoArchivo);
                 long desplazamiento = 0;
                 long parteActual = 1;
-                
-                ndh.Send(bufferLargoArchivo);
+
+                await ndh.SendAsync(bufferLargoArchivo);
 
                 using (FileStreamHelper fsh = new FileStreamHelper(ruta, FileMode.Open, FileAccess.Read))
                 {
@@ -257,9 +261,10 @@ namespace Cliente
                             : Protocolo.MaxLargoParteArchivo;
 
                         Console.WriteLine($"Enviando segmento #{parteActual}/{numPartes} de largo {largoParte}");
-                        byte[] buffer = fsh.Leer(largoParte);
-                        ndh.Send(buffer);
-                        
+
+                        byte[] buffer = await fsh.LeerAsync(largoParte);
+                        await ndh.SendAsync(buffer);
+
                         desplazamiento += largoParte;
                         parteActual++;
                     }
@@ -273,6 +278,13 @@ namespace Cliente
                 Console.WriteLine("Conexión interrumpida");
                 return false;
             }
+        }
+
+        internal static void ManejarCancelacion(object? sender, ConsoleCancelEventArgs e)
+        {
+            e.Cancel = true;
+            Console.WriteLine("Cancelación solicitada...");
+            cts.Cancel();
         }
     }
 }

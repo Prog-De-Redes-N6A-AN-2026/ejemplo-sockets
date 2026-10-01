@@ -3,50 +3,47 @@ using System.Net.Sockets;
 
 public class NetworkDataHelper
 {
-    private readonly Socket _socket;
+    private readonly TcpClient _cliente;
+    private readonly NetworkStream _stream;
 
-    public NetworkDataHelper(Socket socket)
+    public NetworkDataHelper(TcpClient cliente)
     {
-        _socket = socket;
+        _cliente = cliente;
+        _stream = cliente.GetStream();
     }
-    
-    public byte[] Receive(int largo)
+
+    public async Task<byte[]> ReceiveAsync(int largo)
     {
         byte[] buffer = new byte[largo];
         int desplazamiento = 0;
-        
+
         while (desplazamiento < largo)
         {
-            int recibidos = _socket.Receive(buffer, desplazamiento, largo - desplazamiento, SocketFlags.None);
+            int recibidos = await _stream.ReadAsync(
+                buffer,
+                desplazamiento,
+                largo - desplazamiento
+            );
+
             if (recibidos == 0)
             {
                 throw new SocketException();
             }
+
             desplazamiento += recibidos;
         }
-        
+
         return buffer;
     }
 
-    public void Send(byte[] buffer)
+    public async Task SendAsync(byte[] buffer)
     {
-        int largo = buffer.Length;
-        int desplazamiento = 0;
-        
-        while (desplazamiento < largo)
-        {
-            int enviados = _socket.Send(buffer, desplazamiento, largo - desplazamiento, SocketFlags.None);
-            if (enviados == 0)
-            {
-                throw new SocketException();
-            }
-            desplazamiento += enviados;
-        }
+        await _stream.WriteAsync(buffer, 0, buffer.Length);
     }
-    
+
     public void Disconnect()
     {
-        _socket.Shutdown(SocketShutdown.Both);
-        _socket.Close();
+        _stream.Close();
+        _cliente.Close();
     }
 }

@@ -14,25 +14,27 @@ public class FileStreamHelper : IDisposable
         _stream.Dispose();
     }
 
-    public byte[] Leer(int largo)
+    public async Task<byte[]> LeerAsync(int largo)
     {
         byte[] buffer = new byte[largo];
         int totalLeidos = 0;
 
         while (totalLeidos < largo)
         {
-            int leidos = _stream.Read(buffer, totalLeidos, largo - totalLeidos);
+            int leidos = await _stream.ReadAsync(buffer, totalLeidos, largo - totalLeidos);
             if (leidos == 0)
             {
                 throw new Exception("No se pudo leer el archivo");
             }
+
             totalLeidos += leidos;
         }
+
         return buffer;
     }
 
-    public void Escribir(byte[] buffer)
+    public async Task EscribirAsync(byte[] buffer)
     {
-        _stream.Write(buffer, 0, buffer.Length);
+        await _stream.WriteAsync(buffer, 0, buffer.Length);
     }
 }

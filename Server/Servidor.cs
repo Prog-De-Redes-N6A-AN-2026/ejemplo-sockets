@@ -14,31 +14,22 @@ namespace Server
         private static readonly SettingsManager settingsManager = new SettingsManager();
         private static List<Usuario> usuarios = new List<Usuario>();
         private static readonly object lockUsuarios = new object();
-        
-        static void Main(string[] args)
+
+        static async Task Main(string[] args)
         {
             Console.WriteLine("Empezando servidor!");
 
-            Socket socketServer = new Socket(
-                AddressFamily.InterNetwork,
-                SocketType.Stream,
-                ProtocolType.Tcp
-            );
-
             IPAddress ipServidor = IPAddress.Parse(settingsManager.LeerConfig(ServidorConfig.ClaveIpServidor));
             int puertoServidor = int.Parse(settingsManager.LeerConfig(ServidorConfig.ClavePuertoServidor));
-            
-            IPEndPoint endpointLocal = new IPEndPoint(ipServidor, puertoServidor); 
-            
-            socketServer.Bind(endpointLocal);
 
-            socketServer.Listen(10); // escuchamos conexiones
+            TcpListener listener = new TcpListener(ipServidor, puertoServidor);
+            listener.Start(10); // escuchamos conexiones
 
             Console.WriteLine("Esperando a que se conecten clientes...");
 
             while (clientesActuales < maxClientesPermitidos)
             {
-                Socket socketCliente = socketServer.Accept(); // bloqueante
+                TcpClient clienteTcp = await listener.AcceptTcpClientAsync();
 
                 lock (lockHilosClientes)
                 {
@@ -46,43 +37,42 @@ namespace Server
                 }
 
                 int clienteId = clientesActuales;
-                Thread t = new Thread(() => ManejarCliente(socketCliente, clienteId)); 
-                t.Start();
+                _ = ManejarClienteAsync(clienteTcp, clienteId);
             }
 
-            socketServer.Close();
+            listener.Stop();
         }
 
-        static void ManejarCliente(Socket socketCliente, int clienteId)
+        static async Task ManejarClienteAsync(TcpClient clienteTcp, int clienteId)
         {
             Console.WriteLine($"Se conectó el cliente #{clienteId}!");
-            NetworkDataHelper ndh = new NetworkDataHelper(socketCliente);
+            NetworkDataHelper ndh = new NetworkDataHelper(clienteTcp);
             bool clienteConectado = true;
 
             do
             {
                 try
                 {
-                    byte[] bufferTipoMensaje = ndh.Receive(Protocolo.LargoTipoMensaje);
+                    byte[] bufferTipoMensaje = await ndh.ReceiveAsync(Protocolo.LargoTipoMensaje);
 
-                    byte[] bufferComando = ndh.Receive(Protocolo.LargoComando);
+                    byte[] bufferComando = await ndh.ReceiveAsync(Protocolo.LargoComando);
                     string comandoString = Encoding.UTF8.GetString(bufferComando);
                     Comando comando = (Comando)int.Parse(comandoString);
 
-                    byte[] bufferLargoDatosComando = ndh.Receive(sizeof(int));
+                    byte[] bufferLargoDatosComando = await ndh.ReceiveAsync(sizeof(int));
                     int largoDatosComando = BitConverter.ToInt32(bufferLargoDatosComando);
-                    byte[] datosComando = ndh.Receive(largoDatosComando);
+                    byte[] datosComando = await ndh.ReceiveAsync(largoDatosComando);
 
                     switch (comando)
                     {
                         case Comando.Registrar:
-                            Registrar(ndh, datosComando);
+                            await RegistrarAsync(ndh, datosComando);
                             break;
                         case Comando.IniciarSesion:
-                            IniciarSesion(ndh, datosComando);
+                            await IniciarSesionAsync(ndh, datosComando);
                             break;
                         case Comando.EnviarArchivo:
-                            RecibirArchivo(ndh, datosComando);
+                            await RecibirArchivoAsync(ndh, datosComando);
                             break;
                         default:
                             break;
@@ -108,7 +98,7 @@ namespace Server
             }
         }
 
-        static void Registrar(NetworkDataHelper ndh, byte[] datos)
+        static async Task RegistrarAsync(NetworkDataHelper ndh, byte[] datos)
         {
             string datosString = Encoding.UTF8.GetString(datos);
             string[] usuarioYContrasena = datosString.Split('|');
@@ -128,10 +118,10 @@ namespace Server
             }
 
             byte[] bufferResultado = BitConverter.GetBytes(agregado);
-            ndh.Send(bufferResultado);
+            await ndh.SendAsync(bufferResultado);
         }
 
-        static void IniciarSesion(NetworkDataHelper ndh, byte[] datos)
+        static async Task IniciarSesionAsync(NetworkDataHelper ndh, byte[] datos)
         {
             string datosString = Encoding.UTF8.GetString(datos);
             string[] usuarioYContrasena = datosString.Split('|');
@@ -153,16 +143,16 @@ namespace Server
             }
 
             byte[] bufferResultado = BitConverter.GetBytes(exitoso);
-            ndh.Send(bufferResultado);
+            await ndh.SendAsync(bufferResultado);
         }
 
-        static void RecibirArchivo(NetworkDataHelper ndh, byte[] datosNombreArchivo)
+        static async Task RecibirArchivoAsync(NetworkDataHelper ndh, byte[] datosNombreArchivo)
         {
             string nombreArchivo = Encoding.UTF8.GetString(datosNombreArchivo);
 
-            byte[] bufferLargoArchivo = ndh.Receive(Protocolo.LargoDeLargoArchivo);
+            byte[] bufferLargoArchivo = await ndh.ReceiveAsync(Protocolo.LargoDeLargoArchivo);
             long largoArchivo = BitConverter.ToInt64(bufferLargoArchivo);
-            
+
             long desplazamiento = 0;
             long numPartes = Protocolo.CalcularCantidadDePartes(largoArchivo);
             long parteActual = 1;
@@ -183,8 +173,8 @@ namespace Server
                         Console.WriteLine(
                             $"Recibiendo segmento #{parteActual}/{numPartes} de largo {largoParte}");
 
-                        byte[] buffer = ndh.Receive(largoParte);
-                        fsh.Escribir(buffer);
+                        byte[] buffer = await ndh.ReceiveAsync(largoParte);
+                        await fsh.EscribirAsync(buffer);
 
                         desplazamiento += largoParte;
                         parteActual++;

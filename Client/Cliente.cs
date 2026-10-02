@@ -30,14 +30,14 @@ namespace Cliente
             IPEndPoint endpointLocal = new IPEndPoint(ipCliente, puertoCliente);
             TcpClient clienteTcp = new TcpClient(endpointLocal);
 
-            IPAddress ipServidor = IPAddress.Parse(settingsManager.LeerConfig(ServidorConfig.ClaveIpServidor));
+            string hostServidor = settingsManager.LeerConfig(ServidorConfig.ClaveHostServidor);
             int puertoServidor = int.Parse(settingsManager.LeerConfig(ServidorConfig.ClavePuertoServidor));
 
             Console.CancelKeyPress += ManejarCancelacion;
 
             try
             {
-                Task tareaConexion = clienteTcp.ConnectAsync(ipServidor, puertoServidor);
+                Task tareaConexion = clienteTcp.ConnectAsync(hostServidor, puertoServidor);
                 await tareaConexion.WaitAsync(cts.Token);
             }
             catch (OperationCanceledException)

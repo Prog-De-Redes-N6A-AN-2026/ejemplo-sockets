@@ -2,6 +2,7 @@
 
 public class ServidorConfig
 {
-    public static string ClaveIpServidor = "IpServidor";
-    public static string ClavePuertoServidor = "PuertoServidor";
+    public static string ClaveHostServidor = "HOST_SERVIDOR";
+    public static string ClavePuertoServidor = "PUERTO_SERVIDOR";
+    public static string ClaveDirectorioArchivosRecibidos = "DIR_ARCHIVOS";
 }

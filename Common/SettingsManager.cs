@@ -8,6 +8,12 @@ public class SettingsManager
     {
         try
         {
+            string? valor = Environment.GetEnvironmentVariable(clave);
+            if (!string.IsNullOrWhiteSpace(valor))
+            {
+                return valor;
+            }
+            
             var appSetting = ConfigurationManager.AppSettings;
             return appSetting[clave] ?? String.Empty;
         }

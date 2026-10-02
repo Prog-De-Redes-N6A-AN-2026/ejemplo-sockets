@@ -19,7 +19,7 @@ namespace Server
         {
             Console.WriteLine("Empezando servidor!");
 
-            IPAddress ipServidor = IPAddress.Parse(settingsManager.LeerConfig(ServidorConfig.ClaveIpServidor));
+            IPAddress ipServidor = IPAddress.Parse(settingsManager.LeerConfig(ServidorConfig.ClaveHostServidor));
             int puertoServidor = int.Parse(settingsManager.LeerConfig(ServidorConfig.ClavePuertoServidor));
 
             TcpListener listener = new TcpListener(ipServidor, puertoServidor);
@@ -148,7 +148,16 @@ namespace Server
 
         static async Task RecibirArchivoAsync(NetworkDataHelper ndh, byte[] datosNombreArchivo)
         {
-            string nombreArchivo = Encoding.UTF8.GetString(datosNombreArchivo);
+            string nombreArchivo = Path.GetFileName(Encoding.UTF8.GetString(datosNombreArchivo));
+            string directorioArchivos = settingsManager.LeerConfig(ServidorConfig.ClaveDirectorioArchivosRecibidos);
+
+            if (string.IsNullOrWhiteSpace(directorioArchivos))
+            {
+                directorioArchivos = "ArchivosRecibidos";
+            }
+
+            Directory.CreateDirectory(directorioArchivos);
+            string rutaArchivo = Path.Combine(directorioArchivos, nombreArchivo);
 
             byte[] bufferLargoArchivo = await ndh.ReceiveAsync(Protocolo.LargoDeLargoArchivo);
             long largoArchivo = BitConverter.ToInt64(bufferLargoArchivo);
@@ -160,7 +169,7 @@ namespace Server
             try
             {
                 using (FileStreamHelper fsh = new FileStreamHelper(
-                           nombreArchivo,
+                           rutaArchivo,
                            FileMode.Create,
                            FileAccess.Write))
                 {
@@ -185,7 +194,7 @@ namespace Server
             }
             catch (SocketException)
             {
-                File.Delete(nombreArchivo);
+                File.Delete(rutaArchivo);
                 throw;
             }
         }

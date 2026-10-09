@@ -24,7 +24,7 @@ namespace Cliente
         {
             Console.WriteLine("Empezando cliente!");
 
-            IPAddress ipCliente = IPAddress.Parse(settingsManager.LeerConfig(ClienteConfig.ClaveIpCliente));
+            IPAddress ipCliente = IPAddress.Parse(settingsManager.LeerConfig(ClienteConfig.ClaveHostCliente));
             int puertoCliente = int.Parse(settingsManager.LeerConfig(ClienteConfig.ClavePuertoCliente));
 
             IPEndPoint endpointLocal = new IPEndPoint(ipCliente, puertoCliente);

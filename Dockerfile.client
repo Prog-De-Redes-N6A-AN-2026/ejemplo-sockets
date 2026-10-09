@@ -1,10 +1,16 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
 
+COPY Common/Common.csproj Common/
+COPY Client/Client.csproj Client/
+RUN dotnet restore Client/Client.csproj
+
+COPY Common/. Common/
+COPY Client/. Client/
+RUN dotnet publish Client/Client.csproj -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0 AS final
 WORKDIR /app
+COPY --from=build /app/publish .
 
-COPY Client ./Client
-COPY Common ./Common
-
-RUN dotnet publish ./Client/Client.csproj -c Release -o /app/out
-
-ENTRYPOINT ["dotnet", "/app/out/Client.dll"]
+ENTRYPOINT ["dotnet", "Client.dll"]

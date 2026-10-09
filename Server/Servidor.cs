@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Net;
 using System.Text;
 using Common;
+using Server.Datos;
 using Server.Domain;
 
 namespace Server
@@ -12,8 +13,12 @@ namespace Server
         private static readonly object lockHilosClientes = new object();
         private static int clientesActuales = 0;
         private static readonly SettingsManager settingsManager = new SettingsManager();
-        private static List<Usuario> usuarios = new List<Usuario>();
-        private static readonly object lockUsuarios = new object();
+        private static RepositorioUsuarios? repositorioUsuarios;
+
+        private static RepositorioUsuarios ObtenerRepositorioUsuarios()
+        {
+            return repositorioUsuarios ??= new RepositorioUsuarios(settingsManager);
+        }
 
         static async Task Main(string[] args)
         {
@@ -105,17 +110,7 @@ namespace Server
             string nombreUsuario = usuarioYContrasena[0].Trim();
             string contrasena = usuarioYContrasena[1];
 
-            bool agregado = false;
-
-            lock (lockUsuarios)
-            {
-                bool existe = usuarios.Any(u => string.Equals(u.nombreUsuario, nombreUsuario));
-                if (!existe)
-                {
-                    usuarios.Add(new Usuario(nombreUsuario, contrasena));
-                    agregado = true;
-                }
-            }
+            bool agregado = await ObtenerRepositorioUsuarios().RegistrarAsync(nombreUsuario, contrasena);
 
             byte[] bufferResultado = BitConverter.GetBytes(agregado);
             await ndh.SendAsync(bufferResultado);
@@ -128,19 +123,7 @@ namespace Server
             string nombreUsuario = usuarioYContrasena[0].Trim();
             string contrasena = usuarioYContrasena[1];
 
-            bool exitoso = false;
-
-            lock (lockUsuarios)
-            {
-                Usuario? usuario = usuarios.FirstOrDefault(u => string.Equals(u.nombreUsuario, nombreUsuario));
-                if (usuario != null)
-                {
-                    if (usuario.contrasena == contrasena)
-                    {
-                        exitoso = true;
-                    }
-                }
-            }
+            bool exitoso = await ObtenerRepositorioUsuarios().LoginAsync(nombreUsuario, contrasena);
 
             byte[] bufferResultado = BitConverter.GetBytes(exitoso);
             await ndh.SendAsync(bufferResultado);
